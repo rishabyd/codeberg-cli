@@ -56,6 +56,7 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newAuthCmd())
 	root.AddCommand(newRepoCmd())
 	root.AddCommand(newUpdateCmd(version))
+	root.AddCommand(newHealthCmd())
 
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageError(err.Error())
@@ -231,6 +232,17 @@ func newUpdateCmd(version string) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return checkAndUpdate(version)
+		},
+	}
+}
+
+func newHealthCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "health",
+		Short: "Check Codeberg service status",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runHealth()
 		},
 	}
 }
