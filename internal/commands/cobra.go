@@ -55,7 +55,7 @@ func newRootCmd(version string) *cobra.Command {
 
 	root.AddCommand(newAuthCmd())
 	root.AddCommand(newRepoCmd())
-	root.AddCommand(newUpdateCmd())
+	root.AddCommand(newUpdateCmd(version))
 
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageError(err.Error())
@@ -224,25 +224,13 @@ func newRepoCmd() *cobra.Command {
 	return repoCmd
 }
 
-func newUpdateCmd() *cobra.Command {
+func newUpdateCmd(version string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "update",
 		Short: "Update to the latest release",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Print("Proceed with update? [Y/n] ")
-			var answer string
-			if _, err := fmt.Scanln(&answer); err != nil {
-				return nil
-			}
-			answer = strings.TrimSpace(strings.ToLower(answer))
-			if answer != "" && answer != "y" && answer != "yes" {
-				fmt.Println("To update manually, run:")
-				fmt.Println("  curl -fsSL https://raw.githubusercontent.com/rishabyd/codeberg-cli/main/install.sh | bash")
-				return nil
-			}
-
-			return runUpdate()
+			return checkAndUpdate(version)
 		},
 	}
 }
