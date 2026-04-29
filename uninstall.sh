@@ -34,7 +34,7 @@ remove_git_helper() {
 
 main() {
   printf "Uninstall cb? [y/N] "
-  read -r answer
+  read -r answer < /dev/tty
   case "$answer" in
     [Yy]|[Yy][Ee][Ss]) ;;
     *) echo "Aborted."; exit 0 ;;
