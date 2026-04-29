@@ -3,10 +3,6 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: write
@@ -16,53 +12,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
 
-      - name: Get version
-        id: version
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG="${{ github.ref_name }}"
-          else
-            TAG="dev-build"
-          fi
-          VERSION=$(printf '%s' "$TAG" | sed 's/^v//')
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Build assets
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          mkdir -p dist
-
-          for target in linux/amd64 linux/arm64; do
-            GOOS="${target%/*}"
-            GOARCH="${target#*/}"
-            TARGET="${GOOS}_${GOARCH}"
-            BIN_DIR="dist/${TARGET}"
-            ASSET="cb_${VERSION}_${TARGET}.tar.gz"
-
-            mkdir -p "$BIN_DIR"
-            CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-              go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
-              -o "${BIN_DIR}/cb" ./cmd/cb
-            tar -czf "$ASSET" -C "$BIN_DIR" cb
-
-            echo "Built $ASSET ($(wc -c < "$ASSET") bytes)"
-          done
-
-      - name: Create release and upload assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --notes "Release $TAG" \
-            --target "$GITHUB_SHA" \
-            ./cb_*.tar.gz
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

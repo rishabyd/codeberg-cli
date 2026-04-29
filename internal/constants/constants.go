@@ -17,4 +17,7 @@ const (
 	OAuthCallbackPort   = 3214
 	OAuthRedirectURI    = "http://localhost:3214/callback"
 	GitCredentialTarget = "credential.https://codeberg.org.helper"
+	DefaultMigrateService = "github"
 )
+
+var StatusBadgeIDs = []int{1, 38, 29}

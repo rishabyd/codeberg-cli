@@ -11,7 +11,7 @@ import (
 	"github.com/rishabyd/codeberg-cli/internal/constants"
 )
 
-func WaitForAuthCode(ctx context.Context) (string, error) {
+func WaitForAuthCode(ctx context.Context, expectedState string) (string, error) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
@@ -21,6 +21,11 @@ func WaitForAuthCode(ctx context.Context) (string, error) {
 		if e := q.Get("error"); e != "" {
 			errCh <- fmt.Errorf("oauth error: %s", e)
 			http.Error(w, "Authorization failed", http.StatusBadRequest)
+			return
+		}
+		if state := q.Get("state"); state != expectedState {
+			errCh <- fmt.Errorf("csrf state mismatch")
+			http.Error(w, "Invalid state", http.StatusBadRequest)
 			return
 		}
 		code := q.Get("code")

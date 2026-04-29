@@ -6,14 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/rishabyd/codeberg-cli/internal/constants"
 )
 
 type AuthConfig struct {
-	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken,omitempty"`
-	Username     string `json:"username,omitempty"`
+	AccessToken  string    `json:"accessToken"`
+	RefreshToken string    `json:"refreshToken,omitempty"`
+	Username     string    `json:"username,omitempty"`
+	Expiry       time.Time `json:"expiry,omitempty"`
 }
 
 type CorruptConfigError struct {

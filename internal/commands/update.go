@@ -1,31 +1,35 @@
 package commands
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"net/http"
 	"os"
-	"os/exec"
-	"strconv"
 	"strings"
+
+	selfupdate "github.com/creativeprojects/go-selfupdate"
+	"github.com/rishabyd/codeberg-cli/internal/constants"
 )
 
-const latestReleaseURL = "https://api.github.com/repos/rishabyd/codeberg-cli/releases/latest"
-
-type ghRelease struct {
-	TagName string `json:"tag_name"`
-}
-
 func checkAndUpdate(currentVersion string) error {
-	latest, err := fetchLatestTag()
+	ctx := context.Background()
+	repo := selfupdate.ParseSlug(constants.UpdateRepository)
+
+	latest, found, err := selfupdate.DetectLatest(ctx, repo)
 	if err != nil {
-		fmt.Println("Could not check for updates. Proceeding...")
-	} else if !isNewer(latest, currentVersion) {
+		fmt.Println("Could not check for updates.")
+		return nil
+	}
+	if !found {
+		fmt.Println("No releases found.")
+		return nil
+	}
+
+	if !latest.GreaterThan(currentVersion) {
 		fmt.Printf("Already up to date (v%s)\n", currentVersion)
 		return nil
-	} else {
-		fmt.Printf("A new version is available: %s (current: v%s)\n", latest, currentVersion)
 	}
+
+	fmt.Printf("A new version is available: v%s (current: v%s)\n", latest.Version(), currentVersion)
 
 	fmt.Print("Proceed with update? [Y/n] ")
 	var answer string
@@ -39,66 +43,15 @@ func checkAndUpdate(currentVersion string) error {
 		return nil
 	}
 
-	return execUpdate()
-}
-
-func fetchLatestTag() (string, error) {
-	resp, err := http.Get(latestReleaseURL)
+	exe, err := selfupdate.ExecutablePath()
 	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+		return fmt.Errorf("could not locate executable path: %w", err)
 	}
 
-	var release ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", err
+	if err := selfupdate.UpdateTo(ctx, latest.AssetURL, latest.AssetName, exe); err != nil {
+		return fmt.Errorf("update failed: %w", err)
 	}
-	return release.TagName, nil
-}
 
-func isNewer(latest, current string) bool {
-	l := parseVersion(latest)
-	c := parseVersion(current)
-	if l == nil || c == nil {
-		return true
-	}
-	for i := 0; i < 3; i++ {
-		if l[i] > c[i] {
-			return true
-		}
-		if l[i] < c[i] {
-			return false
-		}
-	}
-	return false
-}
-
-func parseVersion(v string) []int {
-	v = strings.TrimPrefix(v, "v")
-	parts := strings.Split(v, ".")
-	if len(parts) < 3 {
-		return nil
-	}
-	nums := make([]int, 3)
-	for i := 0; i < 3; i++ {
-		n, err := strconv.Atoi(parts[i])
-		if err != nil {
-			return nil
-		}
-		nums[i] = n
-	}
-	return nums
-}
-
-func execUpdate() error {
-	cmd := exec.Command("bash", "-c",
-		"curl -fsSL https://raw.githubusercontent.com/rishabyd/codeberg-cli/main/install.sh | bash")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	fmt.Fprintf(os.Stderr, "Updated to v%s. Please restart your shell.\n", latest.Version())
+	return nil
 }

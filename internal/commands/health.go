@@ -7,12 +7,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-const (
-	colorReset = "\033[0m"
-	colorGreen = "\033[32m"
-	colorRed   = "\033[31m"
+	"github.com/rodaine/table"
+	"github.com/rishabyd/codeberg-cli/internal/constants"
 )
 
 type healthService struct {
@@ -20,10 +17,14 @@ type healthService struct {
 	badgeURL string
 }
 
-var healthServices = []healthService{
-	{label: "Codeberg.org", badgeURL: "https://status.codeberg.org/api/badge/1/status"},
-	{label: "Hosted CI/CD: Forgejo Actions", badgeURL: "https://status.codeberg.org/api/badge/38/status"},
-	{label: "Hosted CI/CD: Woodpecker", badgeURL: "https://status.codeberg.org/api/badge/29/status"},
+var healthServices []healthService
+
+func init() {
+	healthServices = []healthService{
+		{label: "Codeberg.org", badgeURL: fmt.Sprintf("https://status.codeberg.org/api/badge/%d/status", constants.StatusBadgeIDs[0])},
+		{label: "Hosted CI/CD: Forgejo Actions", badgeURL: fmt.Sprintf("https://status.codeberg.org/api/badge/%d/status", constants.StatusBadgeIDs[1])},
+		{label: "Hosted CI/CD: Woodpecker", badgeURL: fmt.Sprintf("https://status.codeberg.org/api/badge/%d/status", constants.StatusBadgeIDs[2])},
+	}
 }
 
 type healthResult struct {
@@ -32,14 +33,6 @@ type healthResult struct {
 }
 
 func runHealth() error {
-	labelWidth := 0
-	for _, svc := range healthServices {
-		if len(svc.label) > labelWidth {
-			labelWidth = len(svc.label)
-		}
-	}
-	labelWidth += 2
-
 	client := &http.Client{Timeout: 5 * time.Second}
 	results := make([]healthResult, len(healthServices))
 
@@ -56,21 +49,18 @@ func runHealth() error {
 	}
 	wg.Wait()
 
+	tbl := table.New("Service", "Status")
 	allUnknown := true
 	for _, r := range results {
-		var color, status string
 		switch r.status {
 		case "Up":
 			allUnknown = false
-			color, status = colorGreen, "Up"
 		case "Down":
 			allUnknown = false
-			color, status = colorRed, "Down"
-		default:
-			color, status = colorReset, "Unknown"
 		}
-		fmt.Printf("%-*s %s%s%s\n", labelWidth, r.label, color, status, colorReset)
+		tbl.AddRow(r.label, r.status)
 	}
+	tbl.Print()
 
 	fmt.Println()
 	if allUnknown {

@@ -7,7 +7,7 @@ import (
 	"github.com/rishabyd/codeberg-cli/internal/commands"
 )
 
-var version = "0.1.0"
+var version = "dev"
 
 func main() {
 	exitCode, err := run()

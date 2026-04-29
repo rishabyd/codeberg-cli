@@ -3,19 +3,19 @@ package repository
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/rishabyd/codeberg-cli/internal/codeberg"
 	"github.com/rishabyd/codeberg-cli/internal/config"
+	"github.com/rishabyd/codeberg-cli/internal/constants"
 	"github.com/rishabyd/codeberg-cli/internal/validation"
 )
 
-type Service struct {
-	Git Git
-	API API
-}
+type Service struct{}
 
 type ListItem struct {
 	Name       string
@@ -52,19 +52,12 @@ type MigrateResult struct {
 	ClonedTo string
 }
 
-func NewService(git Git) *Service {
-	if git == nil {
-		git = ExecGit{}
-	}
-	return &Service{Git: git, API: codebergAPI{}}
-}
-
 func (s *Service) List(ctx context.Context, cfg *config.AuthConfig, limit int) (*ListResult, error) {
 	if err := validation.PositiveLimit(limit, 1000); err != nil {
 		return nil, usageError(err.Error())
 	}
 
-	repos, err := s.API.FetchUserRepos(ctx, cfg, limit)
+	repos, err := codeberg.FetchUserRepos(ctx, cfg, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +114,7 @@ func (s *Service) Create(ctx context.Context, cfg *config.AuthConfig, input Crea
 		return nil, usageError(err.Error())
 	}
 
-	repo, err := s.API.CreateRepo(ctx, cfg, codeberg.CreateRepoRequest{
+	repo, err := codeberg.CreateRepo(ctx, cfg, codeberg.CreateRepoRequest{
 		Name:        input.Name,
 		Description: input.Description,
 		Private:     input.Private,
@@ -134,7 +127,7 @@ func (s *Service) Create(ctx context.Context, cfg *config.AuthConfig, input Crea
 
 	out := &CreateResult{Repo: repo}
 	if input.CloneAfter {
-		if err := s.Git.Clone(ctx, repo.CloneURL, ""); err != nil {
+		if err := gitClone(ctx, repo.CloneURL, ""); err != nil {
 			return nil, err
 		}
 		out.ClonedTo = repo.Name
@@ -149,8 +142,8 @@ func (s *Service) Migrate(ctx context.Context, cfg *config.AuthConfig, input Mig
 	}
 	parts := strings.Split(source, "/")
 
-	repo, err := s.API.MigrateRepo(ctx, cfg, codeberg.MigrateRepoRequest{
-		Service:      "github",
+	repo, err := codeberg.MigrateRepo(ctx, cfg, codeberg.MigrateRepoRequest{
+		Service:      constants.DefaultMigrateService,
 		CloneAddr:    fmt.Sprintf("https://github.com/%s.git", source),
 		RepoName:     parts[1],
 		Private:      false,
@@ -167,13 +160,28 @@ func (s *Service) Migrate(ctx context.Context, cfg *config.AuthConfig, input Mig
 
 	out := &MigrateResult{Repo: repo}
 	if input.CloneAfter {
-		if err := s.Git.Clone(ctx, repo.CloneURL, ""); err != nil {
+		if err := gitClone(ctx, repo.CloneURL, ""); err != nil {
 			return nil, err
 		}
 		out.ClonedTo = repo.Name
 	}
 
 	return out, nil
+}
+
+func gitClone(ctx context.Context, cloneURL, directory string) error {
+	args := []string{"clone", "--", cloneURL}
+	if strings.TrimSpace(directory) != "" {
+		args = append(args, directory)
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git %s failed: %w", strings.Join(args, " "), err)
+	}
+	return nil
 }
 
 func timeAgo(date string) string {

@@ -1,25 +1,49 @@
 package codeberg
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"strings"
+	"time"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/rishabyd/codeberg-cli/internal/config"
 	"github.com/rishabyd/codeberg-cli/internal/constants"
+	"golang.org/x/oauth2"
 )
 
-var (
-	apiBaseURL    = constants.CodebergAPIBaseURL
-	oauthTokenURL = constants.OAuthTokenURL
-)
+var oauthCfg = &oauth2.Config{
+	ClientID: constants.OAuthClientID,
+	Endpoint: oauth2.Endpoint{
+		AuthURL:  constants.OAuthAuthorizeURL,
+		TokenURL: constants.OAuthTokenURL,
+	},
+	RedirectURL: constants.OAuthRedirectURI,
+}
+
+var restyClient = resty.New().
+	SetBaseURL(constants.CodebergAPIBaseURL).
+	SetTimeout(30 * time.Second).
+	SetRetryCount(3).
+	SetRetryWaitTime(1 * time.Second).
+	SetRetryMaxWaitTime(10 * time.Second).
+	SetHeader("Accept", "application/json").
+	AddRetryCondition(func(r *resty.Response, err error) bool {
+		if err != nil {
+			return true
+		}
+		code := r.StatusCode()
+		return code >= 500 || code == 429
+	}).
+	OnAfterResponse(func(_ *resty.Client, r *resty.Response) error {
+		if r.StatusCode() == http.StatusTooManyRequests {
+			return fmt.Errorf("rate limited by Codeberg — wait and try again")
+		}
+		return nil
+	})
 
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
@@ -110,113 +134,73 @@ func IsNetworkError(err error) bool {
 	return errors.As(err, &target)
 }
 
-func ExchangeCode(ctx context.Context, code, verifier string) (*TokenResponse, error) {
-	v := url.Values{}
-	v.Set("client_id", constants.OAuthClientID)
-	v.Set("grant_type", "authorization_code")
-	v.Set("redirect_uri", constants.OAuthRedirectURI)
-	v.Set("code", code)
-	v.Set("code_verifier", verifier)
+// ---- OAuth endpoints ----
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, constants.OAuthTokenURL, bytes.NewBufferString(v.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
-		return nil, fmt.Errorf("token exchange failed: %s", string(body))
-	}
-
-	var out TokenResponse
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-		return nil, err
-	}
-	if out.AccessToken == "" {
-		return nil, fmt.Errorf("token exchange failed: no access token")
-	}
-	return &out, nil
+func GenerateVerifier() string {
+	return oauth2.GenerateVerifier()
 }
 
-func RefreshToken(ctx context.Context, refreshToken string) (*TokenResponse, error) {
-	v := url.Values{}
-	v.Set("client_id", constants.OAuthClientID)
-	v.Set("grant_type", "refresh_token")
-	v.Set("refresh_token", refreshToken)
+func AuthorizationURL(state, verifier string) string {
+	return oauthCfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier))
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, oauthTokenURL, bytes.NewBufferString(v.Encode()))
+func ExchangeCode(ctx context.Context, code, verifier string) (*TokenResponse, error) {
+	tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
+	return tokenToResponse(tok), nil
+}
 
-	res, err := http.DefaultClient.Do(req)
+func refreshToken(ctx context.Context, refreshToken string) (*TokenResponse, error) {
+	tok := &oauth2.Token{RefreshToken: refreshToken}
+	ts := oauthCfg.TokenSource(ctx, tok)
+	newTok, err := ts.Token()
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
-
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return nil, fmt.Errorf("refresh failed with status %d", res.StatusCode)
-	}
-
-	var out TokenResponse
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-		return nil, err
-	}
-	if out.AccessToken == "" {
+	if newTok.AccessToken == "" {
 		return nil, fmt.Errorf("refresh failed: no access token")
 	}
-	return &out, nil
+	return tokenToResponse(newTok), nil
 }
+
+func tokenToResponse(tok *oauth2.Token) *TokenResponse {
+	return &TokenResponse{
+		AccessToken:  tok.AccessToken,
+		RefreshToken: tok.RefreshToken,
+		TokenType:    tok.TokenType,
+		ExpiresIn:    int64(time.Until(tok.Expiry).Seconds()),
+	}
+}
+
+// ---- Auth helpers ----
 
 func GetCurrentUserByToken(ctx context.Context, accessToken string) (*User, int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBaseURL+"/user", nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return nil, res.StatusCode, nil
-	}
-
 	var u User
-	if err := json.NewDecoder(res.Body).Decode(&u); err != nil {
-		return nil, res.StatusCode, err
+	resp, err := restyClient.R().
+		SetContext(ctx).
+		SetAuthToken(accessToken).
+		SetResult(&u).
+		Get(constants.CodebergAPIBaseURL + "/user")
+
+	if err != nil {
+		return nil, 0, err
 	}
-	return &u, res.StatusCode, nil
+	if resp.StatusCode() >= 300 {
+		return nil, resp.StatusCode(), nil
+	}
+	return &u, resp.StatusCode(), nil
 }
 
+// ---- API methods ----
+
 func GetCurrentUser(ctx context.Context, cfg *config.AuthConfig) (*User, error) {
-	res, err := doAuthenticatedRequest(ctx, cfg, http.MethodGet, apiBaseURL+"/user", nil, "")
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return nil, fmt.Errorf("failed to fetch current user: %s", extractAPIError(res.Body, res.StatusCode))
-	}
-
 	var u User
-	if err := json.NewDecoder(res.Body).Decode(&u); err != nil {
+	_, err := doAuthenticatedResty(ctx, cfg, resty.MethodGet, func(r *resty.Request) {
+		r.SetResult(&u)
+	}, "/user")
+	if err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -226,81 +210,122 @@ func FetchUserRepos(ctx context.Context, cfg *config.AuthConfig, limit int) ([]R
 	if limit <= 0 {
 		limit = 30
 	}
-
-	res, err := doAuthenticatedRequest(ctx, cfg, http.MethodGet, fmt.Sprintf("%s/user/repos?limit=%d", apiBaseURL, limit), nil, "")
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return nil, fmt.Errorf("failed to fetch repositories: %s", extractAPIError(res.Body, res.StatusCode))
-	}
-
 	var out []Repo
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+	_, err := doAuthenticatedResty(ctx, cfg, resty.MethodGet, func(r *resty.Request) {
+		r.SetResult(&out).
+			SetQueryParam("limit", fmt.Sprintf("%d", limit))
+	}, "/user/repos")
+	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
 func CreateRepo(ctx context.Context, cfg *config.AuthConfig, payload CreateRepoRequest) (*Repo, error) {
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := doAuthenticatedRequest(ctx, cfg, http.MethodPost, apiBaseURL+"/user/repos", b, "application/json")
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return nil, fmt.Errorf("failed to create repository: %s", extractAPIError(res.Body, res.StatusCode))
-	}
-
 	var out Repo
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+	_, err := doAuthenticatedResty(ctx, cfg, resty.MethodPost, func(r *resty.Request) {
+		r.SetBody(payload).
+			SetResult(&out)
+	}, "/user/repos")
+	if err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
 func MigrateRepo(ctx context.Context, cfg *config.AuthConfig, payload MigrateRepoRequest) (*Repo, error) {
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := doAuthenticatedRequest(ctx, cfg, http.MethodPost, apiBaseURL+"/repos/migrate", b, "application/json")
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return nil, fmt.Errorf("migration failed: %s", extractAPIError(res.Body, res.StatusCode))
-	}
-
 	var out Repo
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+	_, err := doAuthenticatedResty(ctx, cfg, resty.MethodPost, func(r *resty.Request) {
+		r.SetBody(payload).
+			SetResult(&out)
+	}, "/repos/migrate")
+	if err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func extractAPIError(r io.Reader, code int) string {
-	body, _ := io.ReadAll(io.LimitReader(r, 4096))
+// ---- internal ----
+
+func doAuthenticatedResty(ctx context.Context, cfg *config.AuthConfig, method string, setup func(r *resty.Request), path string) (*resty.Response, error) {
+	if cfg == nil || strings.TrimSpace(cfg.AccessToken) == "" {
+		return nil, &AuthError{Message: "Not logged in"}
+	}
+
+	if time.Now().After(cfg.Expiry) && strings.TrimSpace(cfg.RefreshToken) != "" {
+		if err := refreshAndSave(ctx, cfg); err != nil {
+			return nil, &AuthError{Message: "Session expired. Run `cb auth login`"}
+		}
+	}
+
+	req := restyClient.R().
+		SetContext(ctx).
+		SetAuthToken(cfg.AccessToken)
+
+	setup(req)
+
+	resp, err := req.Execute(method, path)
+	if err != nil {
+		return nil, wrapNetworkError(err)
+	}
+
+	if resp.StatusCode() != http.StatusUnauthorized && resp.StatusCode() != http.StatusForbidden {
+		if resp.StatusCode() >= 400 {
+			msg := extractAPIError(resp.Body(), resp.StatusCode())
+			return nil, fmt.Errorf("%s", msg)
+		}
+		return resp, nil
+	}
+
+	if strings.TrimSpace(cfg.RefreshToken) == "" {
+		return nil, &AuthError{Message: "Session expired. Run `cb auth login`"}
+	}
+
+	if err := refreshAndSave(ctx, cfg); err != nil {
+		return nil, &AuthError{Message: "Session expired. Run `cb auth login`"}
+	}
+
+	req2 := restyClient.R().
+		SetContext(ctx).
+		SetAuthToken(cfg.AccessToken)
+
+	setup(req2)
+
+	resp2, err := req2.Execute(method, path)
+	if err != nil {
+		return nil, wrapNetworkError(err)
+	}
+	if resp2.StatusCode() == http.StatusUnauthorized || resp2.StatusCode() == http.StatusForbidden {
+		return nil, &AuthError{Message: "Session expired. Run `cb auth login`"}
+	}
+	if resp2.StatusCode() >= 400 {
+		msg := extractAPIError(resp2.Body(), resp2.StatusCode())
+		return nil, fmt.Errorf("%s", msg)
+	}
+	return resp2, nil
+}
+
+func refreshAndSave(ctx context.Context, cfg *config.AuthConfig) error {
+	refreshed, err := refreshToken(ctx, cfg.RefreshToken)
+	if err != nil {
+		return err
+	}
+	cfg.AccessToken = refreshed.AccessToken
+	if strings.TrimSpace(refreshed.RefreshToken) != "" {
+		cfg.RefreshToken = refreshed.RefreshToken
+	}
+	cfg.Expiry = time.Now().Add(time.Duration(refreshed.ExpiresIn) * time.Second)
+	return config.Save(*cfg)
+}
+
+func extractAPIError(body []byte, code int) string {
 	if len(body) == 0 {
 		return fmt.Sprintf("HTTP %d", code)
 	}
-
 	var apiErr apiError
 	if err := json.Unmarshal(body, &apiErr); err == nil && strings.TrimSpace(apiErr.Message) != "" {
 		return apiErr.Message
 	}
-
 	msg := strings.TrimSpace(string(body))
 	if msg == "" {
 		return fmt.Sprintf("HTTP %d", code)
@@ -308,97 +333,9 @@ func extractAPIError(r io.Reader, code int) string {
 	return msg
 }
 
-func doAuthenticatedRequest(ctx context.Context, cfg *config.AuthConfig, method, targetURL string, body []byte, contentType string) (*http.Response, error) {
-	if cfg == nil || strings.TrimSpace(cfg.AccessToken) == "" {
-		return nil, &AuthError{Message: "Not logged in"}
+func wrapNetworkError(err error) error {
+	if err == nil {
+		return nil
 	}
-
-	res, err := doRequest(ctx, cfg.AccessToken, method, targetURL, body, contentType)
-	if err != nil {
-		return nil, err
-	}
-
-	if res.StatusCode != http.StatusUnauthorized && res.StatusCode != http.StatusForbidden {
-		return res, nil
-	}
-
-	res.Body.Close()
-	if strings.TrimSpace(cfg.RefreshToken) == "" {
-		return nil, &AuthError{Message: "Session expired. Run `cb auth login`"}
-	}
-
-	refreshed, err := RefreshToken(ctx, cfg.RefreshToken)
-	if err != nil {
-		return nil, &AuthError{Message: "Session expired. Run `cb auth login`"}
-	}
-
-	cfg.AccessToken = refreshed.AccessToken
-	if strings.TrimSpace(refreshed.RefreshToken) != "" {
-		cfg.RefreshToken = refreshed.RefreshToken
-	}
-	if saveErr := config.Save(*cfg); saveErr != nil {
-		return nil, saveErr
-	}
-
-	res, err = doRequest(ctx, cfg.AccessToken, method, targetURL, body, contentType)
-	if err != nil {
-		return nil, err
-	}
-	if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
-		res.Body.Close()
-		return nil, &AuthError{Message: "Session expired. Run `cb auth login`"}
-	}
-
-	return res, nil
-}
-
-func doRequest(ctx context.Context, accessToken, method, targetURL string, body []byte, contentType string) (*http.Response, error) {
-	var reader io.Reader
-	if len(body) > 0 {
-		reader = bytes.NewReader(body)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, targetURL, reader)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-	if strings.TrimSpace(contentType) != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		if isNetworkFailure(err) {
-			return nil, &NetworkError{Err: err}
-		}
-		return nil, err
-	}
-	return res, nil
-}
-
-func isNetworkFailure(err error) bool {
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return true
-	}
-
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
-
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
-		if urlErr.Timeout() {
-			return true
-		}
-		inner := urlErr.Err
-		if inner != nil {
-			return isNetworkFailure(inner)
-		}
-	}
-
-	return false
+	return &NetworkError{Err: err}
 }
