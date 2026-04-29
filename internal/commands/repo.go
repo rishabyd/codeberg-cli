@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rodaine/table"
 	"github.com/rishabyd/codeberg-cli/internal/codeberg"
 	"github.com/rishabyd/codeberg-cli/internal/repository"
 	"github.com/rishabyd/codeberg-cli/internal/validation"
+	"github.com/rodaine/table"
 	"github.com/spf13/cobra"
 )
 

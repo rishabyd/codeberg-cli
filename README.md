@@ -6,6 +6,7 @@ Current scope:
 - auth login/logout/status
 - repo list/create/migrate
 - self update
+- service health check
 
 ## Install / Update / Uninstall
 
@@ -34,13 +35,21 @@ From local checkout:
 ./uninstall.sh
 ```
 
+## Global Flags
+
+```bash
+cb --version          # show version
+cb --verbose          # enable debug output for any command
+cb -v                 # short alias for --version
+```
+
 ## Command Syntax
 
 ```bash
 cb auth <action>
 cb repo <action> [target]
 cb update
-```
+cb health
 
 Auth:
 
@@ -91,12 +100,22 @@ cb repo migrate owner/repo --clone
 - milestones
 - releases
 
+Health:
+
+```bash
+cb health
+```
+
+Checks Codeberg.org and hosted CI/CD service status via status.codeberg.org.
+
 ## Troubleshooting
 
 - DNS failure (`lookup codeberg.org ... server misbehaving`) is a local network resolver issue, not token expiry.
-- If refresh token is revoked or expired, run `cb auth login` again.
+- API requests automatically retry up to 3 times on transient network failures and server errors (5xx).
+- Tokens refresh proactively before expiry (1 hour). If refresh token is revoked or expired, run `cb auth login` again.
 - Verify auth and API reachability with `cb auth status`.
 - Ensure git HTTPS helper is configured: `git config --global --get credential.https://codeberg.org.helper`.
+- Use `--verbose` on any command to see detailed debug output.
 
 ## Exit Codes
 
@@ -108,6 +127,8 @@ cb repo migrate owner/repo --clone
 
 ```bash
 go build -o cb ./cmd/cb
+go vet ./...
+go test ./...
 ./cb --help
 ```
 
@@ -121,25 +142,27 @@ Other platforms can use source build (`go build -o cb ./cmd/cb`).
 
 ## Versioning
 
-This project uses Go-native tag-based versioning.
-
 - Local/dev builds show version `dev`.
-- Release builds inject version from git tag using Go linker flags.
+- Release builds inject version from git tag via GoReleaser.
 
 Create and publish a release:
 
 ```bash
-git status
-git tag -a v0.4.13 -m "v0.4.13"
-git push origin main --tags
+git tag v0.2.0
+git push origin v0.2.0
 ```
+
+GoReleaser handles the rest: builds, archives, checksums, and GitHub release creation.
 
 To verify locally:
 
 ```bash
-go build -ldflags "-X main.version=0.4.13" -o cb ./cmd/cb
-./cb --version
+go run ./cmd/cb --version
+# Expected: vdev
 ```
 
-Required secret for releases:
-- `GITHUB_TOKEN` (provided automatically by GitHub Actions)
+To snapshot a build without publishing:
+
+```bash
+go install github.com/goreleaser/goreleaser/v2@latest
+goreleaser release --snapshot --clean
