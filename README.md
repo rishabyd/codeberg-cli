@@ -50,6 +50,7 @@ cb auth <action>
 cb repo <action> [target]
 cb update
 cb health
+```
 
 Auth:
 
