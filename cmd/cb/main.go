@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/rishabyd/codeberg-cli/internal/commands"
+	"github.com/rishabyd/codeberg-cli/internal/output"
 )
 
 var version = "dev"
@@ -12,7 +12,7 @@ var version = "dev"
 func main() {
 	exitCode, err := run()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		output.PrintErr(err.Error())
 		os.Exit(exitCode)
 	}
 }

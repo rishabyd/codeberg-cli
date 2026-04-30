@@ -11,6 +11,7 @@ import (
 	"github.com/rishabyd/codeberg-cli/internal/config"
 	"github.com/rishabyd/codeberg-cli/internal/constants"
 	"github.com/rishabyd/codeberg-cli/internal/gitcred"
+	"github.com/rishabyd/codeberg-cli/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +23,7 @@ func runUninstall(ctx context.Context) error {
 	}
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	if answer != "y" && answer != "yes" {
-		fmt.Println("Aborted.")
+		fmt.Println(output.Dim("Aborted."))
 		return nil
 	}
 
@@ -37,7 +38,7 @@ func runUninstall(ctx context.Context) error {
 		fmt.Printf("Could not remove config: %v\n", err)
 	}
 
-	fmt.Printf("Uninstalled cb and removed local config from ~/.config/%s\n", constants.ConfigDirName)
+	fmt.Println(output.Success("Uninstalled cb and removed local config from ~/.config/" + constants.ConfigDirName))
 	return nil
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/rishabyd/codeberg-cli/internal/constants"
 	"github.com/rishabyd/codeberg-cli/internal/gitcred"
 	"github.com/rishabyd/codeberg-cli/internal/oauth"
+	"github.com/rishabyd/codeberg-cli/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +26,7 @@ func authLogin(ctx context.Context) error {
 		return mapConfigError(err)
 	}
 	if existing != nil && existing.AccessToken != "" {
-		fmt.Println("Already authenticated. Run `cb auth logout` to re-authenticate.")
+		fmt.Println(output.Warning("Already authenticated. Run `cb auth logout` to re-authenticate."))
 		return nil
 	}
 
@@ -33,9 +34,9 @@ func authLogin(ctx context.Context) error {
 	state := generateState()
 	authURL := codeberg.AuthorizationURL(state, verifier)
 
-	fmt.Println("Opening browser for Codeberg authentication...")
+	fmt.Println(output.Bold("Opening browser for Codeberg authentication..."))
 	fmt.Println("If browser does not open, use this URL:")
-	fmt.Println(authURL)
+	fmt.Println(output.URL(authURL))
 
 	_ = openBrowser(authURL)
 
@@ -70,8 +71,9 @@ func authLogin(ctx context.Context) error {
 		return err
 	}
 
-	fmt.Printf("\n✓ Logged in as %s\n", user.Login)
-	fmt.Println("Git credential helper configured.")
+	fmt.Println()
+	fmt.Println(output.BoldSuccess("Logged in as " + user.Login))
+	fmt.Println(output.Dim("Git credential helper configured."))
 	return nil
 }
 
@@ -80,7 +82,7 @@ func authLogout(ctx context.Context) error {
 	if err := config.Clear(); err != nil {
 		return err
 	}
-	fmt.Println("✓ Logged out")
+	fmt.Println(output.Success("Logged out"))
 	return nil
 }
 
@@ -101,8 +103,8 @@ func authStatus(ctx context.Context) error {
 		return errors.New("Failed to verify authenticated user")
 	}
 
-	fmt.Printf("%s\n", constants.CodebergHost)
-	fmt.Printf("  ✓ Logged in as %s\n", user.Login)
+	fmt.Println(output.Bold(constants.CodebergHost))
+	fmt.Println("  " + output.Success("Logged in as "+user.Login))
 	return nil
 }
 
@@ -126,7 +128,7 @@ func requireAuth() (*config.AuthConfig, error) {
 		return nil, mapConfigError(err)
 	}
 	if cfg == nil || cfg.AccessToken == "" {
-		return nil, errors.New("Not logged in. Run `cb auth login`")
+		return nil, errors.New("not logged in — run `cb auth login`")
 	}
 	return cfg, nil
 }

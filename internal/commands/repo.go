@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/rishabyd/codeberg-cli/internal/codeberg"
+	"github.com/rishabyd/codeberg-cli/internal/output"
 	"github.com/rishabyd/codeberg-cli/internal/repository"
 	"github.com/rishabyd/codeberg-cli/internal/validation"
 	"github.com/rodaine/table"
@@ -148,7 +149,7 @@ func runRepoList(ctx context.Context, limit int) error {
 		return mapCodebergError(err)
 	}
 	if result == nil || len(result.Items) == 0 {
-		fmt.Println("No repositories.")
+		fmt.Println(output.Dim("No repositories."))
 		return nil
 	}
 
@@ -181,10 +182,10 @@ func runRepoMigrate(ctx context.Context, source string, cloneAfter bool) error {
 		return nil
 	}
 
-	fmt.Printf("Migrated %s to Codeberg\n", source)
-	fmt.Printf("HTTPS: %s\n", out.Repo.CloneURL)
-	fmt.Printf("SSH:   %s\n", out.Repo.SSHURL)
-	fmt.Printf("Web:   %s\n", out.Repo.HTMLURL)
+	fmt.Println(output.Success("Migrated " + source + " to Codeberg"))
+	fmt.Println(output.Labeled("HTTPS", output.URL(out.Repo.CloneURL)))
+	fmt.Println(output.Labeled("SSH", output.URL(out.Repo.SSHURL)))
+	fmt.Println(output.Labeled("Web", output.URL(out.Repo.HTMLURL)))
 	printClonePath(out.ClonedTo)
 
 	return nil
@@ -194,15 +195,15 @@ func printRepoResult(action string, repo *codeberg.Repo) {
 	if repo == nil {
 		return
 	}
-	fmt.Printf("%s %s\n", action, repo.FullName)
-	fmt.Printf("HTTPS: %s\n", repo.CloneURL)
-	fmt.Printf("SSH:   %s\n", repo.SSHURL)
-	fmt.Printf("Web:   %s\n", repo.HTMLURL)
+	fmt.Println(output.BoldSuccess(action + " " + repo.FullName))
+	fmt.Println(output.Labeled("HTTPS", output.URL(repo.CloneURL)))
+	fmt.Println(output.Labeled("SSH", output.URL(repo.SSHURL)))
+	fmt.Println(output.Labeled("Web", output.URL(repo.HTMLURL)))
 }
 
 func printClonePath(name string) {
 	if name == "" {
 		return
 	}
-	fmt.Printf("Cloned to ./%s\n", name)
+	fmt.Println(output.Dim("Cloned to ./" + name))
 }

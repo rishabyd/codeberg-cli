@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rishabyd/codeberg-cli/internal/constants"
+	"github.com/rishabyd/codeberg-cli/internal/output"
 	"github.com/rodaine/table"
 )
 
@@ -52,21 +53,26 @@ func runHealth() error {
 	tbl := table.New("Service", "Status")
 	allUnknown := true
 	for _, r := range results {
+		var styled string
 		switch r.status {
 		case "Up":
+			styled = output.StatusUp()
 			allUnknown = false
 		case "Down":
+			styled = output.StatusDown()
 			allUnknown = false
+		default:
+			styled = output.StatusUnknown()
 		}
-		tbl.AddRow(r.label, r.status)
+		tbl.AddRow(r.label, styled)
 	}
 	tbl.Print()
 
 	fmt.Println()
 	if allUnknown {
-		fmt.Println("Could not reach status servers. Check your internet connection.")
+		fmt.Println(output.Warning("Could not reach status servers. Check your internet connection."))
 	}
-	fmt.Println("Details: https://status.codeberg.org/status/codeberg")
+	fmt.Println(output.Dim("Details: https://status.codeberg.org/status/codeberg"))
 	return nil
 }
 
