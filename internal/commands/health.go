@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rodaine/table"
 	"github.com/rishabyd/codeberg-cli/internal/constants"
+	"github.com/rodaine/table"
 )
 
 type healthService struct {

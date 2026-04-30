@@ -1,169 +1,215 @@
-# cb (Codeberg CLI)
+# cb — Codeberg CLI
 
-`cb` is a minimal, `gh`-style CLI for Codeberg focused on practical daily workflows.
+A minimal, `gh`-style CLI for Codeberg.
 
-Current scope:
-- auth login/logout/status
-- repo list/create/migrate
-- self update
-- service health check
+```bash
+cb auth login                    # Login via OAuth
+cb repo create my-project --public --clone
+cb repo list --limit 10
+cb health
+cb update
+```
 
-## Install / Update / Uninstall
+## Table of Contents
 
-Install:
+- [Install](#install)
+- [QuickStart](#quickstart)
+- [Commands](#commands)
+- [Flags](#flags)
+- [Examples](#examples)
+- [Troubleshooting](#troubleshooting)
+- [Build from Source](#build-from-source)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rishabyd/codeberg-cli/main/install.sh | sh
 ```
 
-Update:
+**Update:** `cb update`
+
+**Uninstall:** `cb uninstall`
+
+Supported platforms: Linux amd64, Linux arm64.
+
+## QuickStart
 
 ```bash
-cb update
-```
-
-Uninstall:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/rishabyd/codeberg-cli/main/uninstall.sh | sh
-```
-
-From local checkout:
-
-```bash
-./install.sh
-./uninstall.sh
-```
-
-## Global Flags
-
-```bash
-cb --version          # show version
-cb --verbose          # enable debug output for any command
-cb -v                 # short alias for --version
-```
-
-## Command Syntax
-
-```bash
-cb auth <action>
-cb repo <action> [target]
-cb update
-cb health
-```
-
-Auth:
-
-```bash
+# Login (opens browser)
 cb auth login
-cb auth status
-cb auth logout
+
+# Create a public repo and clone it
+cb repo create my-project --public --clone
+cd my-project
+
+# List your repos
+cb repo list
+
+# Check Codeberg status
+cb health
 ```
 
-Repo:
+## Commands
+
+### `cb auth`
 
 ```bash
-cb repo list [--limit <n>]
-cb repo create <name> [flags]
-cb repo migrate <owner/repo> [--clone]
+cb auth login     # Login via OAuth (opens browser)
+cb auth status    # Show auth status
+cb auth logout    # Clear session and credentials
 ```
 
-Create flags:
-- `-d, --description <text>`
-- `--public`
-- `--private`
-- `--add-readme`
-- `-c, --clone`
+### `cb repo`
 
-## Common Workflows
-
-Create repository:
+Aliases: `cb repository`
 
 ```bash
-cb repo create my-project --public
-cb repo create my-project --private --description "internal tools"
-cb repo create my-project --public --add-readme --clone
+cb repo list [flags]                  # List your repositories (alias: ls)
+cb repo create <name> [flags]         # Create a repository
+cb repo migrate <owner/repo> [flags]  # Migrate from GitHub
 ```
 
-Migrate repository:
+### `cb update`
+
+Check for and install the latest release.
 
 ```bash
-cb repo migrate owner/repo
-cb repo migrate owner/repo --clone
+cb update
 ```
 
-`cb repo migrate` performs public GitHub -> public Codeberg migration and includes:
-- source code
-- issues
-- pull requests
-- wiki
-- labels
-- milestones
-- releases
+### `cb health`
 
-Health:
+Check Codeberg.org and CI/CD service status.
 
 ```bash
 cb health
 ```
 
-Checks Codeberg.org and hosted CI/CD service status via status.codeberg.org.
+### `cb uninstall`
+
+Remove the `cb` binary, local config, and git credential helper.
+
+```bash
+cb uninstall
+```
+
+## Flags
+
+### Global
+
+| Flag | Description |
+|------|-------------|
+| `-v`, `--version` | Show version |
+| `--verbose` | Enable debug output |
+
+### `cb repo list`
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--limit` | `30` | Number of repositories |
+
+### `cb repo create`
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--description` | `-d` | Repository description |
+| `--public` | — | Public repository (default if neither specified) |
+| `--private` | — | Private repository |
+| `--add-readme` | — | Initialize with README |
+| `--clone` | `-c` | Clone after creating |
+
+### `cb repo migrate`
+
+| Flag | Description |
+|------|-------------|
+| `--clone` | Clone after migrating |
+
+## Examples
+
+### Create and push a new project
+
+```bash
+cb repo create my-project --public --clone
+cd my-project
+echo "# My Project" > README.md
+git add README.md
+git commit -m "init"
+git push -u origin main
+```
+
+### Migrate from GitHub
+
+```bash
+cb repo migrate owner/repo --clone
+cd repo
+git remote -v
+```
+
+### List with limit
+
+```bash
+cb repo list --limit 5
+```
 
 ## Troubleshooting
 
-- DNS failure (`lookup codeberg.org ... server misbehaving`) is a local network resolver issue, not token expiry.
-- API requests automatically retry up to 3 times on transient network failures and server errors (5xx).
-- Tokens refresh proactively before expiry (1 hour). If refresh token is revoked or expired, run `cb auth login` again.
-- Verify auth and API reachability with `cb auth status`.
-- Ensure git HTTPS helper is configured: `git config --global --get credential.https://codeberg.org.helper`.
-- Use `--verbose` on any command to see detailed debug output.
+**DNS failure**
+```
+lookup codeberg.org ... server misbehaving
+```
+Local network resolver issue. Check your DNS settings.
 
-## Exit Codes
+**Auth expired**
+```
+Session expired. Run `cb auth login`
+```
+Run `cb auth login` to re-authenticate.
 
-- `0`: success
-- `1`: runtime/auth/network/api error
-- `2`: usage or argument error
+**Debug any command**
+```bash
+cb auth status --verbose
+cb repo list --verbose
+```
+
+**Verify git credential helper**
+```bash
+git config --global --get credential.https://codeberg.org.helper
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Runtime / auth / network / API error |
+| `2` | Usage or argument error |
 
 ## Build from Source
 
+Requires Go 1.26+.
+
 ```bash
+git clone https://github.com/rishabyd/codeberg-cli.git
+cd codeberg-cli
+
+# Format, lint, test
+go tool gofumpt -w . && go vet ./... && go test ./...
+
+# Build
 go build -o cb ./cmd/cb
-go vet ./...
-go test ./...
 ./cb --help
 ```
 
-## Platform Compatibility
+## Contributing
 
-Official prebuilt release binaries are provided for:
-- Linux x86_64 (`linux_amd64`)
-- Linux ARM64 (`linux_arm64`)
+1. Fork and clone
+2. Format and test: `go tool gofumpt -w . && go vet ./... && go test ./...`
+3. Build: `go build -o cb ./cmd/cb`
+4. Commit and push
+5. Open a pull request
 
-Other platforms can use source build (`go build -o cb ./cmd/cb`).
+## License
 
-## Versioning
-
-- Local/dev builds show version `dev`.
-- Release builds inject version from git tag via GoReleaser.
-
-Create and publish a release:
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-GoReleaser handles the rest: builds, archives, checksums, and GitHub release creation.
-
-To verify locally:
-
-```bash
-go run ./cmd/cb --version
-# Expected: vdev
-```
-
-To snapshot a build without publishing:
-
-```bash
-go install github.com/goreleaser/goreleaser/v2@latest
-goreleaser release --snapshot --clean
+MIT — see [LICENSE](LICENSE).

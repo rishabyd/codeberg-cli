@@ -26,10 +26,10 @@ var oauthCfg = &oauth2.Config{
 
 var restyClient = resty.New().
 	SetBaseURL(constants.CodebergAPIBaseURL).
-	SetTimeout(30 * time.Second).
+	SetTimeout(30*time.Second).
 	SetRetryCount(3).
-	SetRetryWaitTime(1 * time.Second).
-	SetRetryMaxWaitTime(10 * time.Second).
+	SetRetryWaitTime(1*time.Second).
+	SetRetryMaxWaitTime(10*time.Second).
 	SetHeader("Accept", "application/json").
 	AddRetryCondition(func(r *resty.Response, err error) bool {
 		if err != nil {
@@ -183,7 +183,6 @@ func GetCurrentUserByToken(ctx context.Context, accessToken string) (*User, int,
 		SetAuthToken(accessToken).
 		SetResult(&u).
 		Get(constants.CodebergAPIBaseURL + "/user")
-
 	if err != nil {
 		return nil, 0, err
 	}

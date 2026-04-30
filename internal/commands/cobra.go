@@ -63,6 +63,7 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newRepoCmd())
 	root.AddCommand(newUpdateCmd(version))
 	root.AddCommand(newHealthCmd())
+	root.AddCommand(newUninstallCmd())
 
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageError(err.Error())
