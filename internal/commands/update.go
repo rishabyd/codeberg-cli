@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	selfupdate "github.com/creativeprojects/go-selfupdate"
@@ -32,6 +33,17 @@ func checkAndUpdate(currentVersion string) error {
 
 	fmt.Println(output.Bold(fmt.Sprintf("A new version is available: v%s (current: v%s)", latest.Version(), currentVersion)))
 
+	exe, err := selfupdate.ExecutablePath()
+	if err != nil {
+		return fmt.Errorf("could not locate executable path: %w", err)
+	}
+
+	if !isWritable(filepath.Dir(exe)) {
+		fmt.Println(output.Warning("Installed to " + filepath.Dir(exe) + " (requires root to update)"))
+		fmt.Println(output.Dim("Run: sudo cb update"))
+		return nil
+	}
+
 	fmt.Print("Proceed with update? [Y/n] ")
 	var answer string
 	if _, err := fmt.Scanln(&answer); err != nil {
@@ -44,15 +56,21 @@ func checkAndUpdate(currentVersion string) error {
 		return nil
 	}
 
-	exe, err := selfupdate.ExecutablePath()
-	if err != nil {
-		return fmt.Errorf("could not locate executable path: %w", err)
-	}
-
 	if err := selfupdate.UpdateTo(ctx, latest.AssetURL, latest.AssetName, exe); err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "%s\n", output.Success(fmt.Sprintf("Updated to v%s. Please restart your shell.", latest.Version())))
 	return nil
+}
+
+func isWritable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".cb-write-test-")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+	return true
 }
